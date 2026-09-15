@@ -8,9 +8,9 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: 'https://github.com/mon-orga/agent-platform-gitops.git'
+    repoURL: 'https://github.com/<your-username>/durable-agents-k8s.git'
     targetRevision: HEAD
-    path: gitops
+    path: v1-extensible/gitops
   destination:
     server: 'https://kubernetes.default.svc'
     namespace: agent-system

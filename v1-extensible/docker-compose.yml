@@ -1,0 +1,67 @@
+version: "3.8"
+
+services:
+  # --- Control Plane (Restate Server) ---
+  restate:
+    image: docker.io/restatedev/restate:latest
+    container_name: agent-restate
+    restart: unless-stopped
+    ports:
+      - "8080:8080" # Ingress API (Virtual Objects invocation & awakeables)
+      - "9070:9070" # Admin API & Prometheus Metrics
+    networks:
+      - agent-net
+
+  # --- Application Chapeau (Gateway & HITL Console) ---
+  app-chapeau:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    container_name: agent-app-chapeau
+    restart: unless-stopped
+    ports:
+      - "8000:8000" # Web Dashboard & REST API
+    environment:
+      - RESTATE_INGRESS_URL=http://restate:8080
+      - RESTATE_ADMIN_URL=http://restate:9070
+      - CATALOG_PATH=/app/catalog
+      - ENABLE_PHOENIX=${ENABLE_PHOENIX:-false}
+      - PHOENIX_URL=http://phoenix:6006
+    depends_on:
+      - restate
+    networks:
+      - agent-net
+
+  # --- Elastic Worker Pool (Restate Virtual Object Worker) ---
+  agent-worker:
+    build:
+      context: .
+      dockerfile: runtimes/restate/Dockerfile
+    container_name: agent-worker
+    restart: unless-stopped
+    environment:
+      - GATEWAY_URL=http://app-chapeau:8000
+      - RESTATE_ADMIN_URL=http://restate:9070
+      - ADVERTISE_URI=http://agent-worker:9080
+      - ENABLE_PHOENIX=${ENABLE_PHOENIX:-false}
+      - PHOENIX_COLLECTOR_ENDPOINT=http://phoenix:6006/v1/traces
+    depends_on:
+      - restate
+      - app-chapeau
+    networks:
+      - agent-net
+
+  # --- Extension: Observability via Arize Phoenix (Profiles: observability) ---
+  phoenix:
+    image: docker.io/arizephoenix/phoenix:latest
+    container_name: agent-phoenix
+    profiles:
+      - observability
+    ports:
+      - "6006:6006" # Arize Phoenix Web UI & OTel collector
+    networks:
+      - agent-net
+
+networks:
+  agent-net:
+    driver: bridge

@@ -1,0 +1,40 @@
+services:
+  restate:
+    image: docker.io/restatedev/restate:latest
+    container_name: v0-restate
+    ports:
+      - "8080:8080" # Ingress HTTP
+      - "9070:9070" # Admin API & Prometheus
+    networks:
+      - v0-net
+
+  app-chapeau:
+    build:
+      context: ./app_chapeau
+    container_name: v0-app-chapeau
+    ports:
+      - "8000:8000" # Web UI & API
+    environment:
+      - RESTATE_INGRESS_URL=http://restate:8080
+    depends_on:
+      - restate
+    networks:
+      - v0-net
+
+  agent-worker:
+    build:
+      context: ./agent_worker
+    container_name: v0-agent-worker
+    environment:
+      - GATEWAY_URL=http://app-chapeau:8000
+      - RESTATE_ADMIN_URL=http://restate:9070
+      - ADVERTISE_URI=http://agent-worker:9080
+    depends_on:
+      - restate
+      - app-chapeau
+    networks:
+      - v0-net
+
+networks:
+  v0-net:
+    driver: bridge

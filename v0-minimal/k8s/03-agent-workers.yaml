@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-workers
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-workers
+  template:
+    metadata:
+      labels:
+        app: agent-workers
+    spec:
+      containers:
+        - name: worker
+          image: agent-worker:v0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GATEWAY_URL
+              value: "http://app-chapeau:8000"
+            - name: RESTATE_ADMIN_URL
+              value: "http://restate:9070"
+          ports:
+            - containerPort: 9080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: keda-agent-workers
+spec:
+  scaleTargetRef:
+    name: agent-workers
+  minReplicaCount: 1
+  maxReplicaCount: 5
+  pollingInterval: 5
+  cooldownPeriod: 30
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prom-stack-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+        metricName: restate_pending_invocations
+        query: sum(restate_service_pending_invocations{service="GitHubIssueResolver"})
+        threshold: "2"

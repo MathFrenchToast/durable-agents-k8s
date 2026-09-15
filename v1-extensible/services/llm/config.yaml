@@ -1,0 +1,16 @@
+version: "1.0"
+default_model: "mock" # Options: "mock", "gpt-4o-mini", "claude-3-5-sonnet-20241022", "ollama/qwen2.5-coder"
+
+routing_rules:
+  code_analysis: "mock" # Can be switched to "claude-3-5-sonnet-20241022" or "ollama/qwen2.5-coder"
+  summarization: "mock" # Can be switched to "gpt-4o-mini"
+  decision: "mock"
+
+fallback_chain:
+  - "claude-3-5-sonnet-20241022"
+  - "gpt-4o-mini"
+  - "mock"
+
+rate_limits:
+  max_requests_per_minute: 60
+  cost_budget_usd_per_day: 10.0

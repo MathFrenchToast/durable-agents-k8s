@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phoenix
+  namespace: agent-system
+  labels:
+    app: phoenix
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: phoenix
+  template:
+    metadata:
+      labels:
+        app: phoenix
+    spec:
+      containers:
+        - name: phoenix
+          image: docker.io/arizephoenix/phoenix:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: ui-and-collector
+              containerPort: 6006
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: phoenix
+  namespace: agent-system
+  labels:
+    app: phoenix
+spec:
+  type: ClusterIP
+  selector:
+    app: phoenix
+  ports:
+    - name: http
+      port: 6006
+      targetPort: 6006

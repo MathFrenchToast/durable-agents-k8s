@@ -1,0 +1,16 @@
+id: "github-issue-resolver"
+name: "Résolveur de Tickets GitHub"
+description: "Agent autonome d'analyse d'issues et de génération de pull requests."
+service_name: "GitHubIssueResolver"
+handler: "resolve"
+parameters:
+  - name: "target_repo"
+    label: "Dépôt GitHub"
+    type: "string"
+    required: true
+    default: "mon-orga/backend-api"
+  - name: "issue_id"
+    label: "Numéro de l'issue"
+    type: "string"
+    required: true
+    default: "42"

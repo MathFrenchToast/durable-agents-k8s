@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-chapeau
+  namespace: agent-system
+  labels:
+    app: app-chapeau
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app-chapeau
+  template:
+    metadata:
+      labels:
+        app: app-chapeau
+    spec:
+      containers:
+        - name: app
+          image: agent-platform/app-chapeau:v0.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RESTATE_INGRESS_URL
+              value: "http://restate.agent-system.svc.cluster.local:8080"
+            - name: RESTATE_ADMIN_URL
+              value: "http://restate.agent-system.svc.cluster.local:9070"
+            - name: CATALOG_PATH
+              value: "/app/catalog"
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-chapeau
+  namespace: agent-system
+  labels:
+    app: app-chapeau
+spec:
+  type: LoadBalancer
+  selector:
+    app: app-chapeau
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

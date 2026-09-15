@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plateforme Agentique Durable — Console de Contrôle</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --success: #16a34a;
+            --danger: #dc2626;
+            --warning: #f59e0b;
+            --warning-bg: #fef3c7;
+            --code-bg: #1e293b;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.5;
+            padding: 24px;
+        }
+
+        .container {
+            max-width: 1080px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 20px;
+            border-bottom: 2px solid var(--border-color);
+            margin-bottom: 24px;
+        }
+
+        h1 { font-size: 24px; font-weight: 700; color: #1e293b; }
+        .subtitle { font-size: 14px; color: var(--text-muted); }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            background: #dbeafe;
+            color: #1e40af;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.15); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 22px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+
+        .card h2 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .badge-count {
+            background: var(--primary);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+
+        .form-group {
+            margin-bottom: 14px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #334155;
+            margin-bottom: 6px;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 14px;
+            color: var(--text-main);
+            background: #ffffff;
+            transition: border-color 0.15s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 18px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+            gap: 6px;
+        }
+        .btn:hover { background: var(--primary-hover); }
+        .btn-reject { background: var(--danger); }
+        .btn-reject:hover { background: #b91c1c; }
+        .btn-secondary { background: #64748b; }
+        .btn-secondary:hover { background: #475569; }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        /* HITL Items */
+        .hitl-empty {
+            text-align: center;
+            padding: 40px 10px;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .hitl-card {
+            background: var(--warning-bg);
+            border: 1px solid #fde68a;
+            border-left: 4px solid var(--warning);
+            border-radius: 6px;
+            padding: 16px;
+            margin-bottom: 16px;
+            transition: all 0.2s ease;
+        }
+
+        .hitl-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .hitl-instance {
+            font-weight: 700;
+            font-size: 15px;
+            color: #92400e;
+        }
+
+        .hitl-badge {
+            background: #fbbf24;
+            color: #78350f;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        .hitl-message {
+            font-size: 13px;
+            color: #78350f;
+            margin-bottom: 12px;
+            background: rgba(255,255,255,0.6);
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+
+        .hitl-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .hitl-input {
+            margin-top: 6px;
+            font-size: 13px;
+            padding: 8px;
+        }
+
+        /* Terminal log */
+        .log-box {
+            background: var(--code-bg);
+            color: #e2e8f0;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 14px;
+            border-radius: 6px;
+            height: 180px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .log-entry {
+            margin-bottom: 4px;
+        }
+        .log-ts { color: #94a3b8; }
+        .log-success { color: #4ade80; }
+        .log-info { color: #60a5fa; }
+        .log-warn { color: #facc15; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>Plateforme Agentique Durable</h1>
+                <div class="subtitle">Orchestration déterministe avec Restate & Pool élastique K8s</div>
+            </div>
+            <div class="status-pill">
+                <div class="status-dot"></div>
+                <span id="systemStatus">Restate Ingress Connecté</span>
+            </div>
+        </header>
+
+        <div class="grid">
+            <!-- Launch Agent Card -->
+            <div class="card">
+                <h2>
+                    <span>Lancer un Agent</span>
+                    <button class="btn btn-secondary btn-sm" onclick="generateRandomInstance()">ID Aléatoire</button>
+                </h2>
+                
+                <div class="form-group">
+                    <label for="agentSelect">Sélectionner l'Agent :</label>
+                    <select id="agentSelect" onchange="renderDynamicForm()">
+                        <option value="">Chargement du catalogue...</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="instanceId">Identifiant d'Instance :</label>
+                    <input type="text" id="instanceId" placeholder="ex: instance-alpha" value="instance-alpha">
+                </div>
+
+                <div id="dynamicParams"></div>
+
+                <button class="btn" style="width: 100%; margin-top: 8px;" onclick="submitLaunch()">
+                    ⚡ Démarrer le Cycle Déterministe
+                </button>
+            </div>
+
+            <!-- HITL Interactions Card -->
+            <div class="card">
+                <h2>
+                    <span>Arbitrage Humain (HITL)</span>
+                    <span id="pendingCount" class="badge-count">0</span>
+                </h2>
+                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+                    Agents en hibernation complète (0% CPU). En attente d'approbation humaine.
+                </p>
+
+                <div id="hitlContainer">
+                    <div class="hitl-empty">Recherche des instances suspendues...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Logs -->
+        <div class="card">
+            <h2>Journal d'Activité Console</h2>
+            <div id="logBox" class="log-box">
+                <div class="log-entry"><span class="log-ts">[00:00:00]</span> Console initialisée. Prêt pour les tests.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let catalogData = [];
+
+        function appendLog(msg, type = "info") {
+            const box = document.getElementById("logBox");
+            const ts = new Date().toLocaleTimeString();
+            const colorClass = type === "success" ? "log-success" : type === "warn" ? "log-warn" : "log-info";
+            const line = document.createElement("div");
+            line.className = "log-entry";
+            line.innerHTML = `<span class="log-ts">[${ts}]</span> <span class="${colorClass}">${msg}</span>`;
+            box.appendChild(line);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function generateRandomInstance() {
+            const prefixes = ["alpha", "beta", "gamma", "delta"];
+            const rnd = prefixes[Math.floor(Math.random() * prefixes.length)];
+            const num = Math.floor(Math.random() * 900) + 100;
+            document.getElementById("instanceId").value = `instance-${rnd}-${num}`;
+        }
+
+        async function fetchCatalog() {
+            try {
+                const res = await fetch("/api/catalog");
+                catalogData = await res.json();
+                const sel = document.getElementById("agentSelect");
+                sel.innerHTML = "";
+
+                catalogData.forEach(agent => {
+                    const opt = document.createElement("option");
+                    opt.value = agent.id;
+                    opt.textContent = `${agent.name} (${agent.id})`;
+                    sel.appendChild(opt);
+                });
+
+                renderDynamicForm();
+                appendLog(`Catalogue chargé : ${catalogData.length} agent(s) disponible(s).`);
+            } catch (err) {
+                appendLog(`Erreur de chargement du catalogue : ${err.message}`, "warn");
+            }
+        }
+
+        function renderDynamicForm() {
+            const agentId = document.getElementById("agentSelect").value;
+            const agent = catalogData.find(a => a.id === agentId);
+            const container = document.getElementById("dynamicParams");
+            container.innerHTML = "";
+
+            if (!agent || !agent.parameters) return;
+
+            agent.parameters.forEach(param => {
+                const div = document.createElement("div");
+                div.className = "form-group";
+                div.innerHTML = `
+                    <label for="param-${param.name}">${param.label} :</label>
+                    <input type="text" id="param-${param.name}" value="${param.default || ''}" placeholder="${param.label}">
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        async function submitLaunch() {
+            const agentId = document.getElementById("agentSelect").value;
+            const instanceId = document.getElementById("instanceId").value.trim();
+
+            if (!instanceId) {
+                alert("Veuillez spécifier un identifiant d'instance.");
+                return;
+            }
+
+            const agent = catalogData.find(a => a.id === agentId);
+            const params = {};
+            if (agent && agent.parameters) {
+                agent.parameters.forEach(p => {
+                    const val = document.getElementById(`param-${p.name}`)?.value;
+                    params[p.name] = val;
+                });
+            }
+
+            appendLog(`Envoi de la requête de lancement pour '${instanceId}'...`);
+            try {
+                const res = await fetch("/api/agents/launch", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ agent_id: agentId, instance_id: instanceId, params: params })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Erreur lors du lancement");
+
+                appendLog(`Instance '${instanceId}' dispatchée avec succès vers Restate.`, "success");
+                generateRandomInstance();
+                pollPending();
+            } catch (err) {
+                appendLog(`Échec du lancement : ${err.message}`, "warn");
+                alert(`Erreur : ${err.message}`);
+            }
+        }
+
+        async function pollPending() {
+            try {
+                const res = await fetch("/api/hitl/pending");
+                const items = await res.json();
+                const container = document.getElementById("hitlContainer");
+                const countBadge = document.getElementById("pendingCount");
+
+                const entries = Object.entries(items).filter(([id, data]) => data.status === "waiting");
+                countBadge.textContent = entries.length;
+
+                if (entries.length === 0) {
+                    container.innerHTML = `<div class="hitl-empty">Aucun agent en attente de décision. (0% de CPU consommé)</div>`;
+                    return;
+                }
+
+                container.innerHTML = "";
+                entries.forEach(([id, data]) => {
+                    const card = document.createElement("div");
+                    card.className = "hitl-card";
+                    card.innerHTML = `
+                        <div class="hitl-header">
+                            <span class="hitl-instance">Instance : ${id}</span>
+                            <span class="hitl-badge">En attente d'arbitrage</span>
+                        </div>
+                        <div class="hitl-message">${data.message}</div>
+                        <input type="text" id="feedback-${id}" class="hitl-input" placeholder="Directive ou commentaire pour l'agent...">
+                        <div class="hitl-actions">
+                            <button class="btn btn-sm" onclick="resolveHITL('${id}', true)">✓ Approuver & Créer PR</button>
+                            <button class="btn btn-sm btn-reject" onclick="resolveHITL('${id}', false)">✗ Rejeter</button>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+            } catch (err) {
+                console.error("Erreur polling HITL:", err);
+            }
+        }
+
+        async function resolveHITL(instanceId, approved) {
+            const feedbackInput = document.getElementById(`feedback-${instanceId}`);
+            const feedback = feedbackInput ? feedbackInput.value : "";
+            const actionText = approved ? "Approbation" : "Rejet";
+
+            appendLog(`Envoi de la décision (${actionText}) pour l'instance '${instanceId}'...`);
+
+            try {
+                const res = await fetch(`/api/hitl/resolve/${instanceId}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ approved: approved, feedback: feedback })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Erreur de résolution");
+
+                appendLog(`Instance '${instanceId}' résolue avec succès (${actionText}). Reprise déterministe Restate.`, "success");
+                pollPending();
+            } catch (err) {
+                appendLog(`Échec de la résolution pour '${instanceId}' : ${err.message}`, "warn");
+                alert(`Erreur : ${err.message}`);
+            }
+        }
+
+        // Init
+        fetchCatalog();
+        pollPending();
+        setInterval(pollPending, 2000);
+    </script>
+</body>
+</html>

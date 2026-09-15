@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-chapeau
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app-chapeau
+  template:
+    metadata:
+      labels:
+        app: app-chapeau
+    spec:
+      containers:
+        - name: app
+          image: app-chapeau:v0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RESTATE_INGRESS_URL
+              value: "http://restate:8080"
+          ports:
+            - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-chapeau
+spec:
+  type: LoadBalancer
+  selector:
+    app: app-chapeau
+  ports:
+    - port: 8000
+      targetPort: 8000

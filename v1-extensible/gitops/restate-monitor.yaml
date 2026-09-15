@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: restate-monitor
+  namespace: agent-system
+  labels:
+    release: prom-stack
+    app.kubernetes.io/part-of: agent-platform
+spec:
+  selector:
+    matchLabels:
+      app: restate
+  endpoints:
+    - port: admin
+      path: /metrics
+      interval: 5s

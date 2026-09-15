@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: 'https://github.com/<your-username>/durable-agents-k8s.git'
+    repoURL: 'https://github.com/MathFrenchToast/durable-agents-k8s.git'
     targetRevision: HEAD
     path: v1-extensible/gitops
   destination:

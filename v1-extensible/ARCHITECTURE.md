@@ -108,3 +108,15 @@ L'application chapeau ([gateway/](file:///home/mathieu/dev/eaiap/gateway/)) sép
    Interface `BaseOrchestratorClient`. Permet à l'App Chapeau de piloter Restate ou Dapr indifféremment.
 3. **Le Registre HITL ([gateway/services/hitl_store.py](file:///home/mathieu/dev/eaiap/gateway/services/hitl_store.py)) :**
    Interface `BaseHITLStore` : implémentation en mémoire pour le MVP, remplaçable par Redis pour les déploiements haute disponibilité multi-répliques.
+
+---
+
+## 6. Piste d'Évolution : Autoscaling Hybride (KEDA + VPA)
+
+Dans une flotte d'agents en production, l'empreinte mémoire est hautement asymétrique : un agent résolvant une faute de frappe consomme ~40 Mo de RAM, tandis qu'un agent analysant un monorepo ou construisant un AST complet peut requérir ponctuellement 800 Mo.
+
+Pour concilier densité et résilience sans sur-provisionner systématiquement, l'architecture prévoit le couplage de deux autoscalers orthogonaux :
+
+1. **KEDA (Axe Horizontal) :** dimensionne le nombre de Pods workers selon la profondeur de la file d'attente d'orchestration (`restate_service_pending_invocations`).
+2. **VPA (Axe Vertical) :** surveille l'utilisation réelle de la mémoire et des vCPU des conteneurs workers pour ajuster les `requests` et `limits` de manière chirurgicale.
+3. **Redimensionnement à chaud (*In-Place Pod Resize*) :** Grâce au support moderne de `InPlacePodVerticalScaling` (Kubernetes 1.27+), le VPA ajuste la RAM et le CPU d'un Pod en cours d'exécution **sans le redémarrer ni interrompre les coroutines actives**, éliminant tout risque d'OOMKilled sur les tâches lourdes.

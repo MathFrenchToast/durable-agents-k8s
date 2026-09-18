@@ -47,5 +47,5 @@ spec:
       metadata:
         serverAddress: http://prom-stack-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
         metricName: restate_pending_invocations
-        query: sum(restate_service_pending_invocations{service="GitHubIssueResolver"})
+        query: sum(restate_service_pending_invocations{service=~"GitHubIssueResolver|MeetingScheduler"})
         threshold: "2"

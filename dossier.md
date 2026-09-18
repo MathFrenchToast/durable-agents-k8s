@@ -121,7 +121,7 @@ helm install keda kedacore/keda \
 
 ## 3. Définition de l'Agent et Code du Harness
 
-L'agent modèle est `github-issue-resolver`. Son comportement logique :
+L'agent de démonstration est `github-issue-resolver`. Son comportement logique :
 
 1. Analyse le ticket GitHub cible.
 2. Formule une proposition de correctif.

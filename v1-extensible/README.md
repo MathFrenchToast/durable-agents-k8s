@@ -46,7 +46,7 @@ Consulter [ARCHITECTURE.md](file:///home/mathieu/dev/eaiap/ARCHITECTURE.md) pour
 │   │   ├── llm.py                # Contrat BaseLLMRouter
 │   │   └── telemetry.py          # Contrat BaseTracer & BaseSpan
 │   └── agents/
-│       └── github_issue_resolver.py  # Agent modèle résolveur de tickets
+│       └── github_issue_resolver.py  # Agent de démonstration résolveur de tickets
 │
 ├── runtimes/                     # Adaptateurs d'exécution (Adapters)
 │   ├── restate/                  # Implémentation Restate

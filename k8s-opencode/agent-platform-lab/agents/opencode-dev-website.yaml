@@ -1,0 +1,31 @@
+apiVersion: agent.platform/v1alpha1
+kind: DurableAgent
+metadata:
+  name: opencode-dev-website
+  namespace: agent-lab
+  role: "Réalisation d'un site web de type blog sur le devops"
+spec:
+  model: "ollama/gpt-oss:20b-32k"
+  storage:
+    size: "2Gi"
+    storageClassName: "agent-longhorn"
+    accessMode: "ReadWriteOncePod"
+  scaling:
+    autoHibernate: true
+    idleTimeoutSeconds: 120
+    initialReplicas: 1
+    keda:
+      enabled: true
+      minReplicaCount: 0
+      maxReplicaCount: 1
+      cooldownPeriod: 120
+  hitl:
+    mode: "interactive"
+    hibernateOnWait: true
+    gatedCommands:
+      - "git push*"
+      - "npm publish*"
+  systemPrompt: |
+    # Developpement en html/css/ et vuejs
+    - Working directory: `/data/workspace` (persistent Longhorn RWOP volume).
+    - repect development bestpractices

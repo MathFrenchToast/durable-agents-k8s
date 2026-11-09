@@ -32,7 +32,29 @@ htmlcov/
 
 # Environment variables & secrets
 .env
+.env.*
 !.env.example
+infra/lab.env
+!infra/lab.env.example
+kubeconfig
+*.kubeconfig
+id_ed25519*
+id_rsa*
+known_hosts
+
+# Lab runtime, KVM/libvirt & local caches
+.private/
+**/.private/
+*.qcow2
+*.img
+*.iso
+*.tfstate*
+*.pid
+*.port
+*.db
+*.db-shm
+*.db-wal
+*.sqlite*
 
 # IDE & Editor files
 .vscode/

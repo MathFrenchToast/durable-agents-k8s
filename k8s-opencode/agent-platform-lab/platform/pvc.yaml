@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: opencode-sre-storage
+  namespace: agent-lab
+spec:
+  accessModes: [ReadWriteOncePod]
+  storageClassName: agent-longhorn
+  resources:
+    requests:
+      storage: 3Gi

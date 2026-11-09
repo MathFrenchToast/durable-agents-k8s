@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opencode-sre
+  namespace: agent-lab
+  labels:
+    app: opencode-sre
+    app.kubernetes.io/part-of: opencode-agent-platform
+  annotations:
+    agent.platform/role: "SRE & Platform Engineer"
+    agent.platform/description: "Diagnostic d'infrastructure, développement d'outils de résilience (Rate-Limiter, Circuit-Breaker) et tests automatisés Bun."
+    agent.platform/model: "ollama/gpt-oss:20b-32k"
+    agent.platform/auto-hibernate: "true"
+    agent.platform/idle-timeout: "180"
+    agent.platform/storage-size: "3Gi"
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: opencode-sre
+  template:
+    metadata:
+      labels:
+        app: opencode-sre
+    spec:
+      terminationGracePeriodSeconds: 5
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: prepare-data
+          image: busybox:1.36
+          securityContext:
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /data/home /data/cache /data/state /data/config/opencode /data/workspace /data/bin
+              printf '#!/bin/sh\nexec env BUN_BE_BUN=1 /usr/local/bin/opencode "$@"\n' > /data/bin/bun
+              printf '#!/bin/sh\nexec /bin/sh "$@"\n' > /data/bin/bash
+              chmod +x /data/bin/bun /data/bin/bash
+              echo 'export PATH="/data/bin:$PATH"' > /data/home/.profile
+              chown -R 10001:10001 /data
+          volumeMounts:
+            - name: state
+              mountPath: /data
+      containers:
+        - name: opencode
+          image: ghcr.io/anomalyco/opencode:2.0.0
+          imagePullPolicy: IfNotPresent
+          workingDir: /data/workspace
+          command: ["sh", "-c", "trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done"]
+          env:
+            - name: PATH
+              value: /data/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            - name: HOME
+              value: /data/home
+            - name: XDG_DATA_HOME
+              value: /data/home/.local/share
+            - name: XDG_CACHE_HOME
+              value: /data/cache
+            - name: XDG_STATE_HOME
+              value: /data/state
+            - name: XDG_CONFIG_HOME
+              value: /data/config
+            - name: OPENCODE_DB
+              value: /data/opencode.db
+            - name: OLLAMA_API_KEY
+              value: ollama
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: opencode-provider
+                  key: anthropic-api-key
+                  optional: true
+          securityContext:
+            runAsUser: 10001
+            runAsGroup: 10001
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: state
+              mountPath: /data
+            - name: config
+              mountPath: /data/config/opencode/opencode.json
+              subPath: opencode.json
+            - name: config
+              mountPath: /data/config/opencode/AGENTS.md
+              subPath: AGENTS.md
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: opencode-sre-storage
+        - name: config
+          configMap:
+            name: opencode-auditor-config

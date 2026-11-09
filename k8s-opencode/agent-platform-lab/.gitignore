@@ -1,0 +1,17 @@
+infra/lab.env
+!infra/lab.env.example
+.private/
+*.qcow2
+*.img
+*.iso
+*.tfstate*
+.env
+.env.*
+!.env.example
+kubeconfig
+*.pid
+*.port
+*.log
+*.db
+*.db-shm
+*.db-wal

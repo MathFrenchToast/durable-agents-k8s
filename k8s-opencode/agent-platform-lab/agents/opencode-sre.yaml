@@ -1,0 +1,34 @@
+apiVersion: agent.platform/v1alpha1
+kind: DurableAgent
+metadata:
+  name: opencode-sre
+  namespace: agent-lab
+  role: "SRE & Platform Engineer"
+  description: "Diagnostic d'infrastructure, développement d'outils de résilience (Rate-Limiter, Circuit-Breaker) et validation par tests Bun."
+spec:
+  model: "ollama/gpt-oss:20b-32k"
+  storage:
+    size: "3Gi"
+    storageClassName: "agent-longhorn"
+    accessMode: "ReadWriteOncePod"
+  scaling:
+    autoHibernate: true
+    idleTimeoutSeconds: 180
+    initialReplicas: 1
+    keda:
+      enabled: true
+      minReplicaCount: 0
+      maxReplicaCount: 1
+      cooldownPeriod: 180
+  hitl:
+    mode: "interactive"
+    hibernateOnWait: true
+    gatedCommands:
+      - "rm -rf *"
+      - "kubectl delete *"
+  systemPrompt: |
+    # SRE & Platform Reliability Agent
+    - Working directory: `/data/workspace` (persistent Longhorn RWOP volume).
+    - When creating or modifying TypeScript files under 250 lines, ALWAYS use the `write` tool to write the complete, self-contained file rather than partial `edit` patches.
+    - Never import symbols in `*.test.ts` that are not explicitly exported by the implementation module.
+    - Whenever you create or modify code, run `bun test` via the `shell` tool and fix any errors until `bun test` exits with code 0 (`0 fail`).

@@ -1,0 +1,33 @@
+apiVersion: agent.platform/v1alpha1
+kind: DurableAgent
+metadata:
+  name: opencode-secops
+  namespace: agent-lab
+  role: "SecOps & Code Auditor"
+  description: "Audit de sécurité statique, revue de robustesse, détection de failles d'injection/DoS et génération de tests de fuzzing/limites."
+spec:
+  model: "ollama/gpt-oss:20b-32k"
+  storage:
+    size: "1Gi"
+    storageClassName: "agent-longhorn"
+    accessMode: "ReadWriteOncePod"
+  scaling:
+    autoHibernate: true
+    idleTimeoutSeconds: 90
+    initialReplicas: 0
+    keda:
+      enabled: true
+      minReplicaCount: 0
+      maxReplicaCount: 1
+      cooldownPeriod: 90
+  hitl:
+    mode: "strict"
+    hibernateOnWait: true
+    gatedCommands:
+      - "rm *"
+      - "curl *"
+  systemPrompt: |
+    # SecOps & Code Auditor Agent
+    - Working directory: `/data/workspace`.
+    - Inspect code for edge-cases (negative numbers, NaN, Infinity, memory exhaustion, prototype pollution).
+    - Propose clear remediation plans and write security regression tests using `bun:test`.

@@ -1,0 +1,34 @@
+apiVersion: agent.platform/v1alpha1
+kind: DurableAgent
+metadata:
+  name: opencode-dev
+  namespace: agent-lab
+  role: "Backend TypeScript & Bun Developer"
+  description: "Conception de librairies backend TypeScript, API HTTP, structures de données et suites de tests unitaires Bun."
+spec:
+  model: "ollama/gpt-oss:20b-32k"
+  storage:
+    size: "2Gi"
+    storageClassName: "agent-longhorn"
+    accessMode: "ReadWriteOncePod"
+  scaling:
+    autoHibernate: true
+    idleTimeoutSeconds: 120
+    initialReplicas: 1
+    keda:
+      enabled: true
+      minReplicaCount: 0
+      maxReplicaCount: 1
+      cooldownPeriod: 120
+  hitl:
+    mode: "interactive"
+    hibernateOnWait: true
+    gatedCommands:
+      - "git push*"
+      - "npm publish*"
+  systemPrompt: |
+    # Backend TypeScript & Bun Developer
+    - Working directory: `/data/workspace` (persistent Longhorn RWOP volume).
+    - Write clean, strictly typed TypeScript modules using native Bun APIs (`bun:test`, `bun:sqlite`).
+    - Prefer using the `write` tool to write complete files cleanly.
+    - Always execute `bun test` after writing or updating code and ensure 100% of tests pass before concluding your turn.

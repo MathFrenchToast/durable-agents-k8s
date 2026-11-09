@@ -1,4 +1,4 @@
-# Concevoir une plateforme d'agents IA durables sur Kubernetes
+# Une plateforme d'agents IA durables sur Kubernetes en moins de 1 000 lignes de code
 
 Après les chatbots, les harnais (*agent harnesses*) ont, en 2026, réellement fait progresser l'usage en matérialisant l'IA agentique.
 Dorénavant, chaque utilisateur de l'IA dispose sur son poste d'un outil ou d'une application pour lancer plusieurs tâches en parallèle.
@@ -10,6 +10,14 @@ L'offre des plateformes agentiques est en train de se structurer, avec notamment
 Mais comme toujours, il existe une alternative *Make or Buy*, et bien entendu un *Make* qui se doit de ne pas réinventer la roue.
 
 Je vous propose ici de **construire un socle modulaire sur une infrastructure Kubernetes** en assemblant un *harnais* open-source et des briques cloud-natives standards afin de maîtriser l'hébergement des données, le cloisonnement, la boucle agentique — y compris « l'humain dans la boucle » (HITL) — et les coûts d'exécution.
+
+En mettant de côté les scripts de création des VMs de test et le code HTML de l'interface de démo, le cœur de ce socle tient en **moins de 1 000 lignes de code** (~190 lignes de manifestes Kubernetes de base, ~800 lignes de Python pour le *Control Plane*, et ~35 lignes de YAML pour déclarer un nouvel agent).
+Bien entendu, ce noyau ne couvre que le moteur d'exécution et le cycle de vie. Pour constituer une plateforme d'entreprise complète, il faudra y ajouter plusieurs briques essentielles volontairement laissées hors du périmètre de ce lab :
+- **Identité et délégation de droits (OBO / RFC 8693)** : restreindre les droits d'un agent à l'intersection de son identité applicative et des droits de l'utilisateur qui l'invoque, et authentifier les émetteurs d'événements.
+- **Gouvernance des plugins (MCP, Skills) et cloisonnement réseau** : bloquer le trafic sortant direct des Pods (`NetworkPolicies`), gérer le registre et la distribution des plugins (serveurs MCP, *skills*), et filtrer les appels d'outils via une passerelle (OPA/Cedar).
+- **Prompt management** : versionner, tester et gouverner le cycle de vie des prompts système et métier en dehors du code d'infrastructure.
+- **Passerelle LLM, FinOps et coupe-circuits** : routage multi-modèles avec bascule (*fallback*), garanties de confidentialité (*Zero Data Retention* / RGPD), quotas de tokens et plafonds budgétaires.
+- **Observabilité Day-2 et évaluation en CI** : collecte des traces d'exécution OpenTelemetry (`OTLP`), inventaire (*Agent BOM*) et évaluation automatisée des agents en CI avant déploiement.
 
 ---
 
@@ -192,7 +200,48 @@ Sur un hôte Ubuntu 26.04 LTS hébergeant deux VMs K3s et Longhorn CSI (en 2 ré
 
 ---
 
-## 5. Références & Glossaire
+## 5. Reproduire le lab en local
+
+L'ensemble du code, des manifestes Kubernetes et des scripts est disponible dans le dossier [`k8s-opencode/agent-platform-lab/`](https://github.com/MathFrenchToast/durable-agents-k8s/tree/main/k8s-opencode/agent-platform-lab) du dépôt.
+
+### Périmètre et prérequis sur la machine hôte
+
+Le lab crée un cluster Kubernetes à deux nœuds (`agentlab-server` et `agentlab-worker`) dans deux machines virtuelles Ubuntu 24.04 LTS pour reproduire fidèlement le comportement de Longhorn (réplication bloc inter-nœuds) et les bascules de Pods d'un nœud à l'autre :
+- **Système hôte** : Linux x86_64 (testé sur Ubuntu 26.04 LTS) avec virtualisation KVM active (`qemu-kvm`, `libvirt-daemon-system`, `virtinst`, `cloud-image-utils`), `kubectl`, `helm` et `python3-venv`.
+- **Ressources** : 8 vCPU logiques, 16 à 24 Gio de RAM et ~40 Gio d'espace disque libre.
+- **Fournisseur LLM** : le lab utilise par défaut une instance **Ollama** sur l'hôte (avec `qwen2.5-coder:7b` et une fenêtre de contexte portée à `32768` tokens pour supporter le prompt système et les schémas d'outils d'OpenCode v2), rendue accessible aux Pods via la passerelle `192.168.124.1:11434`. N'importe quelle API compatible OpenAI ou Anthropic peut aussi être configurée dans le YAML de l'agent.
+- **Confinement sur le poste** : tous les artefacts générés (disques `.qcow2`, clés SSH éphémères, `kubeconfig`, `venv` Python, snapshots d'agents) sont stockés dans `k8s-opencode/agent-platform-lab/.private/` afin de ne jamais polluer le `$HOME` de l'utilisateur.
+
+### Lancer, utiliser et nettoyer le lab
+
+```bash
+git clone https://github.com/MathFrenchToast/durable-agents-k8s.git
+cd durable-agents-k8s/k8s-opencode/agent-platform-lab
+
+# 1. Provisionner les 2 VMs, installer K3s + Longhorn, déployer l'agent initial
+#    et démarrer le Control Plane web (sur http://localhost:8000 ou le 1er port libre) :
+./up.sh
+
+# 2. Relancer uniquement la console web du Control Plane si besoin :
+./start-ui.sh
+
+# 3. Exécuter les scripts de test en ligne de commande (réveil, tâche, migration de nœud, hibernation) :
+./tests/wake.sh
+./tests/run-coding-task.sh
+./tests/migrate.sh
+./tests/hibernate.sh
+
+# 4. Mettre les VMs en pause (RAM figée, 0 % CPU) ou les reprendre en 2 secondes :
+./pause.sh
+./resume.sh
+
+# 5. Détruire les VMs, le réseau libvirt et purger le dossier .private/ :
+./down.sh
+```
+
+---
+
+## 6. Références & Glossaire
 
 ### Références
 

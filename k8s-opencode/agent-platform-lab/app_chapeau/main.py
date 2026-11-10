@@ -335,9 +335,10 @@ async def _scale_agent(agent_name: str, replicas: int, reason: str = "") -> int:
         return ms
     else:
         rt["last_activity_ts"] = time.time()
-        if rt["status"] == "hibernated":
+        was_hibernated = rt["status"] == "hibernated"
+        if was_hibernated:
             rt["status"] = "working"
-            rt["current_step"] = "Réveil du Pod (0 → 1)..."
+            rt["current_step"] = "Réveil du Pod (0 → 1) & attachement du PVC Longhorn..."
         proc = await asyncio.create_subprocess_exec(
             "kubectl",
             "-n",
@@ -366,6 +367,9 @@ async def _scale_agent(agent_name: str, replicas: int, reason: str = "") -> int:
         ms = int((time.time() - t0) * 1000)
         pod = _get_agent_pod(agent_name)
         if rollout.returncode != 0 or not pod or not pod.get("ready"):
+            if was_hibernated:
+                rt["status"] = "hibernated"
+                rt["current_step"] = ""
             err_detail = roll_err.decode("utf-8", errors="replace").strip()
             ev_res = _run_cmd(["kubectl", "-n", NAMESPACE, "get", "events", "--sort-by=.lastTimestamp"], timeout=5)
             last_ev = "\n".join(ev_res.stdout.strip().splitlines()[-6:]) if ev_res.returncode == 0 else ""
@@ -379,8 +383,9 @@ async def _scale_agent(agent_name: str, replicas: int, reason: str = "") -> int:
 
         node = pod["node"] if pod else "unknown"
         rt["last_activity_ts"] = time.time()
-        if rt["status"] == "hibernated":
+        if was_hibernated:
             rt["status"] = "idle"
+            rt["current_step"] = ""
         _sync_agent_pod_to_cache(agent_name, pod["name"], include_file_contents=True)
         msg = reason or f"⚡ Agent réveillé (0 → 1) sur le nœud {node} en {ms} ms (PVC Longhorn attaché)."
         _append_feed(agent_name, "infra", msg, node=node)
@@ -638,7 +643,7 @@ def _build_k8s_manifests_from_agent_yaml(raw_yaml: str) -> dict:
     scaling = spec.get("scaling", {}) or {}
     auto_hibernate = bool(scaling.get("autoHibernate", True))
     idle_timeout = int(scaling.get("idleTimeoutSeconds", 180))
-    initial_replicas = int(scaling.get("initialReplicas", 1))
+    initial_replicas = int(scaling.get("initialReplicas", scaling.get("minReplicas", 0)))
 
     hitl = spec.get("hitl", {}) or {}
     gated_cmds = hitl.get("gatedCommands", []) or []
@@ -897,6 +902,8 @@ async def apply_agent_yaml(payload: ApplyYamlPayload):
 
     rt = _ensure_agent_runtime(name, idle_timeout=bundle["idle_timeout"], auto_hibernate=bundle["auto_hibernate"])
     rt["last_activity_ts"] = time.time()
+    rt["status"] = "hibernated" if bundle["deployment"]["spec"]["replicas"] == 0 else "idle"
+    rt["current_step"] = ""
     _append_feed(
         name,
         "infra",
@@ -945,10 +952,12 @@ async def get_agent_keda_metrics(agent_name: str):
 @app.get("/api/docs")
 async def get_platform_docs():
     article_path = LAB_ROOT.parent / "article-k8s-eaia-plateform.md"
-    adr_path = LAB_ROOT / "docs" / "ADR.md"
+    user_guide_path = LAB_ROOT / "docs" / "USER_GUIDE.md"
+    tech_stack_path = LAB_ROOT / "docs" / "TECHNICAL_STACK.md"
     return {
         "article_markdown": article_path.read_text(encoding="utf-8") if article_path.exists() else "",
-        "adr_markdown": adr_path.read_text(encoding="utf-8") if adr_path.exists() else "",
+        "user_guide_markdown": user_guide_path.read_text(encoding="utf-8") if user_guide_path.exists() else "",
+        "technical_stack_markdown": tech_stack_path.read_text(encoding="utf-8") if tech_stack_path.exists() else "",
     }
 
 
@@ -2181,7 +2190,7 @@ def serve_ui():
           <button class="btn-outline btn-sm" @click="openLogsModal">
             📜 Logs K8s / PVC
           </button>
-          <button class="btn-outline btn-sm" @click="openDocModal('adr3')" title="Voir les appels API (apply, message, stop, delete) pour cet agent">
+          <button class="btn-outline btn-sm" @click="openDocModal('tech')" title="Voir la stack technique et les appels API (apply, message, stop, delete) pour cet agent">
             🔌 API & Événements
           </button>
           <button class="btn-outline btn-sm" @click="openYamlModal(currentAgent.name)">
@@ -2358,7 +2367,7 @@ def serve_ui():
                   @click="sendMessage"
                   :disabled="!composerPrompt.trim() || currentAgent.status === 'working'"
                 >
-                  {{ currentAgent.status === 'working' ? '⏳ Agent en travail...' : (composerMode === 'hitl_plan' ? '🛡️ Lancer avec HITL' : '🚀 Envoyer à l’agent') }}
+                  {{ currentAgent.status === 'working' ? '⏳ Agent en travail...' : (composerMode === 'hitl_plan' ? (currentAgent.replicas === 0 ? '🛡️ Réveiller (0→1) & Lancer HITL' : '🛡️ Lancer avec HITL') : (currentAgent.replicas === 0 ? '🚀 Réveiller (0→1) & Envoyer' : '🚀 Envoyer à l’agent')) }}
                 </button>
               </div>
             </div>
@@ -2426,8 +2435,8 @@ def serve_ui():
             <h4>🗄️ Sessions SQLite (<code>/data/opencode.db</code>)</h4>
             <div style="font-size:11px; color:#475569; margin-bottom:8px; background:#f8fafc; padding:6px 8px; border-radius:5px; border:1px solid #e2e8f0;">
               Base <strong>SQLite WAL</strong> sur bloc Longhorn <code>ReadWriteOncePod</code> (résiliente à la perte d'un nœud K3s). Synchronisée vers le Control Plane à chaque fin de tâche et avant hibernation.
-              <a href="#" @click.prevent="openDocModal('adr1')" style="color:#2563eb; font-weight:600; text-decoration:none; display:inline-block; margin-top:2px;">
-                📖 Pourquoi 1 Agent = 1 Pod + 1 PVC RWOP (ADR-001) →
+              <a href="#" @click.prevent="openDocModal('overview')" style="color:#2563eb; font-weight:600; text-decoration:none; display:inline-block; margin-top:2px;">
+                📖 Voir l'Overview d'architecture →
               </a>
             </div>
             <div v-if="currentAgent.sqlite_sessions.length === 0" style="font-size:12px; color:#64748b;">
@@ -2536,226 +2545,313 @@ def serve_ui():
     </div>
   </div>
 
-  <!-- 5. MODAL: ARCHITECTURE GUIDE, 3 ADRs, WEBHOOK TESTER & FULL TECHNICAL ARTICLE -->
+  <!-- 5. MODAL: USER DOC, TECHNICAL DOC, ARCHITECTURE OVERVIEW & FULL ARTICLE -->
   <div v-if="docModalOpen" class="modal-backdrop" @click.self="docModalOpen = false">
     <div class="modal-card" style="width:980px;">
       <div class="modal-header">
         <div>
-          <h3 style="margin:0; font-size:16px;">📖 Guide d'Architecture, Décisions (ADRs) & Article Technique</h3>
+          <h3 style="margin:0; font-size:16px;">📖 Documentation du Lab, Architecture & Article</h3>
           <div style="font-size:12px; color:#64748b; margin-top:2px;">
-            Documentation interactive de la plateforme d'agents durables Kubernetes + OpenCode v2 + Longhorn.
+            Guide utilisateur des boutons, documentation technique de la stack K3s/Longhorn/OpenCode, overview du POC et article complet.
           </div>
         </div>
         <button class="btn-outline btn-sm" @click="docModalOpen = false">Fermer ✕</button>
       </div>
       <div class="modal-body">
         <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
-          <button class="btn-sm" :class="docTab === 'overview' ? '' : 'btn-outline'" @click="docTab = 'overview'">📐 1. Architecture & 5 Briques</button>
-          <button class="btn-sm" :class="docTab === 'adr2' ? '' : 'btn-outline'" @click="docTab = 'adr2'">🔄 2. États & Snapshots (ADR-002)</button>
-          <button class="btn-sm" :class="docTab === 'adr1' ? '' : 'btn-outline'" @click="docTab = 'adr1'">🧱 3. Isolation 1 Agent = 1 Pod (ADR-001)</button>
-          <button class="btn-sm" :class="docTab === 'adr3' ? '' : 'btn-outline'" @click="docTab = 'adr3'">⚡ 4. Réveil Événementiel & CronJob (ADR-003)</button>
-          <button class="btn-sm" :class="docTab === 'article' ? 'btn-purple' : 'btn-outline'" @click="docTab = 'article'">📰 5. Article Complet (Markdown)</button>
+          <button class="btn-sm" :class="docTab === 'overview' ? '' : 'btn-outline'" @click="docTab = 'overview'">🧭 1. Overview Architecture & POC</button>
+          <button class="btn-sm" :class="docTab === 'user' ? '' : 'btn-outline'" @click="docTab = 'user'">👤 2. Documentation Utilisateur (Boutons)</button>
+          <button class="btn-sm" :class="docTab === 'tech' ? '' : 'btn-outline'" @click="docTab = 'tech'">⚙️ 3. Documentation Technique & API</button>
+          <button class="btn-sm" :class="docTab === 'article' ? 'btn-purple' : 'btn-outline'" @click="docTab = 'article'">📰 4. Article Complet</button>
         </div>
 
-        <!-- TAB 1: OVERVIEW -->
+        <!-- TAB 1: OVERVIEW ARCHITECTURE & POC -->
         <div v-if="docTab === 'overview'" style="font-size:13px; line-height:1.55;">
           <div class="doc-callout">
-            <strong>Pourquoi cette plateforme ? Du Harness Solo sur poste de travail à l'Enterprise AI Agent :</strong><br>
-            Après le passage du <em>chatbot</em> à l'<em>agent</em> outillé sur poste individuel (OpenCode, Pi), l'étape suivante consiste à héberger plusieurs agents <strong>always-on</strong> (réveillés par alertes, webhooks ou tâches planifiées), partageables en équipe, gouvernés par validation humaine (HITL) et isolés.<br>
-            Face aux plateformes intégrées du marché (<em>Buy</em> : ex. <em>Google Cloud Vertex AI Agent Engine</em>), ce laboratoire illustre l'approche modulaire sur Kubernetes (<em>Make</em>) et montre comment chaque choix technique (ex. OpenCode v2 avec état SQLite local) induit l'architecture des couches suivantes (stockage bloc distribué Longhorn <code>ReadWriteOncePod</code> puis Snapshot Control Plane).
+            <strong>Objectif du POC (en moins de 1 000 lignes de code) :</strong><br>
+            Assembler un harnais d'agent open-source (<strong>OpenCode v2</strong>) et des primitives standards <strong>Kubernetes + Longhorn</strong> pour héberger plusieurs agents durables, isolés (<code>1 Agent = 1 Pod + 1 PVC ReadWriteOncePod</code>), capables d'hiberner à 0 % CPU/RAM (<code>replicas: 0</code>) et de suspendre leur exécution sur validation humaine (<strong>HITL</strong>).
           </div>
-          <pre class="code-block" style="max-height:220px;">Chaîne de causalité technique :
-[1. Besoin : Agent Harness]  ──► Choix : OpenCode v2 (Alternatives : Pi, Claude Code, Aider)
-       │  (persiste ses sessions dans /data/opencode.db SQLite WAL et ses fichiers dans /data/workspace)
-       ▼
-[2. Besoin induit : Persistance & Mobilité Bloc]  ──► Choix : Longhorn CSI ReadWriteOncePod (Alternatives : Ceph RBD, EBS)
-       │  (garantit 1 seul Pod écrivain et tolère la perte d'un nœud, mais démonte le disque quand Pod = 0/1)
-       ▼
-[3. Besoin : Scale-to-Zero (0 ↔ 1)]  ──► Choix : Cooldown Reconciler / KEDA ScaledObject
-       │  (éteint le Pod après inactivité pour tomber à 0 Mio RAM, mais ne gère ni le réveil HTTP ni la lecture à froid)
-       ▼
-[4. Besoin induit : Agent Control Plane ("App Chapeau")]
-          (porte l'API de réveil 0→1, l'état HITL --agent plan/build et le Snapshot sur transition d'état)</pre>
 
-          <h4 style="margin:14px 0 6px;">Les 5 briques de l'architecture</h4>
+          <h4 style="margin:12px 0 6px;">Le cycle de vie d'un agent en 7 étapes</h4>
           <table class="doc-table">
             <thead>
               <tr>
-                <th>Brique</th>
-                <th>Mécanisme technique</th>
-                <th>Où l'observer dans cette console ?</th>
+                <th>Étape</th>
+                <th>État</th>
+                <th>Ce qui se passe dans le POC</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td><strong>1. Isolation (ADR-001)</strong></td>
-                <td><code>1 Instance = 1 Pod + 1 PVC ReadWriteOncePod</code> (StorageClass <code>agent-longhorn</code>, <code>strategy: Recreate</code>).</td>
-                <td>Bouton <strong>+ Agent YAML</strong> et barre de métadonnées (nom du Pod, nœud K3s et PVC dédié).</td>
+                <td><strong>1. Définition</strong></td>
+                <td>YAML (<code>~33 lignes</code>)</td>
+                <td>Déclaration du patron d'agent (<code>kind: DurableAgent</code> : modèle, rôle système, taille du disque, délai d'hibernation, permissions).</td>
               </tr>
               <tr>
-                <td><strong>2. Scale-to-Zero (0 ↔ 1)</strong></td>
-                <td>Tout agent démarre à <code>0/1</code>, se réveille à l'arrivée d'un prompt et retourne à <code>0/1</code> après <code>idleTimeoutSeconds</code>.</td>
-                <td>Compteur <strong>Scale 1→0 dans Xs</strong> et boutons <strong>⚡ Wake / 💤 Hibernate</strong>.</td>
+                <td><strong>2. Instanciation</strong></td>
+                <td><code>POST /api/agents/apply</code></td>
+                <td>Le Control Plane génère et applique dans K3s le <code>PVC</code> Longhorn (<code>ReadWriteOncePod</code>), le <code>ConfigMap</code> et le <code>Deployment</code>.</td>
               </tr>
               <tr>
-                <td><strong>3. Arbitrage Humain (HITL)</strong></td>
-                <td>Phase 1 en lecture seule (<code>--agent plan</code>) → Hibernation <code>0/1</code> → Phase 2 sur la même session SQLite (<code>--agent build --session &lt;id&gt;</code>).</td>
-                <td>Sélecteur <strong>🛡️ Mode HITL</strong> en bas du flux et carte d'approbation jaune avec option de migration de nœud.</td>
+                <td><strong>3. Hibernation initiale</strong></td>
+                <td><code>💤 HIBERNATED (0/1)</code></td>
+                <td>L'agent démarre à <code>replicas: 0</code> (0 Mio de RAM consommée). Son disque Longhorn est prêt mais démonté (<code>detached</code>).</td>
               </tr>
               <tr>
-                <td><strong>4. Snapshots & Accès 0/1 (ADR-002)</strong></td>
-                <td>Synchronisation de <code>/data/workspace</code> et <code>/data/opencode.db</code> dès la fin d'une tâche (<code>WORKING → IDLE</code>) et avant hibernation (<code>1 → 0</code>).</td>
-                <td>Panneau de droite : aperçu web <code>🌐 Ouvrir</code>, <code>📋 Copier</code>, <code>⬇️ .zip</code> et sessions SQLite actifs même Pod éteint.</td>
+                <td><strong>4. Réveil sur événement</strong></td>
+                <td><code>⚡ WAKING → 🟢 WORKING</code></td>
+                <td>Sur réception d'un prompt ou d'un appel <code>POST /api/agents/{name}/message</code>, le Control Plane passe le Deployment à <code>replicas: 1</code>, attache le PVC et lance <code>opencode run</code>.</td>
               </tr>
               <tr>
-                <td><strong>5. Réveil Événementiel (ADR-003)</strong></td>
-                <td>Découplage entre le YAML de l'agent et son réveil par API HTTP (<code>POST /api/agents/{name}/message</code>) ou <code>CronJob</code> K8s.</td>
-                <td>Onglet <strong>⚡ 4. Réveil Événementiel & CronJob</strong> de ce guide (avec bouton de simulation).</td>
+                <td><strong>5. Flux temps réel & HITL</strong></td>
+                <td><code>🟢 WORKING</code> / <code>🟡 WAITING HITL</code></td>
+                <td>Le Control Plane stream le flux <strong>NDJSON</strong> d'OpenCode. En mode HITL, l'agent propose son plan (<code>--agent plan</code>) puis repasse à <code>0/1</code> en attendant la validation humaine.</td>
+              </tr>
+              <tr>
+                <td><strong>6. Fin de tâche & Snapshot #1</strong></td>
+                <td><code>🔵 IDLE (1/1)</code></td>
+                <td>Dès la fin de la tâche, un <strong>premier snapshot</strong> de <code>/data/workspace</code> et <code>/data/opencode.db</code> est copié vers le Control Plane, et le compte à rebours d'inactivité démarre.</td>
+              </tr>
+              <tr>
+                <td><strong>7. Auto-hibernation</strong></td>
+                <td><code>💤 HIBERNATED (0/1)</code></td>
+                <td>Après <code>idleTimeoutSeconds</code>, un <strong>snapshot final</strong> est capturé et le Pod est remis à <code>replicas: 0</code>. Les fichiers et sessions SQLite restent consultables depuis le snapshot.</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <!-- TAB 2: ADR-002 STATE MACHINE & SNAPSHOTS -->
-        <div v-if="docTab === 'adr2'" style="font-size:13px; line-height:1.55;">
-          <h4 style="margin-top:0;">ADR-002 : Pourquoi un Snapshot Control Plane en plus de Longhorn, et quand se déclenche-t-il ?</h4>
+        <!-- TAB 2: DOCUMENTATION UTILISATEUR (ACTION DE CHAQUE BOUTON) -->
+        <div v-if="docTab === 'user'" style="font-size:13px; line-height:1.55;">
           <div class="doc-callout">
-            <strong>Distinction fondamentale :</strong><br>
-            1. <strong>Résilience aux pannes de nœud = Longhorn CSI (<code>numberOfReplicas: 2</code>)</strong> : réplique les blocs ext4 entre <code>agentlab-server</code> et <code>agentlab-worker</code>. Si une VM tombe, aucune donnée n'est perdue.<br>
-            2. <strong>Consultation Pod éteint (<code>0/1</code>) = Snapshot Control Plane</strong> : quand le Pod hiberne (<code>replicas: 0</code>), son disque bloc ext4 est démonté (<code>detached</code>). Monter le PVC dans le Control Plane en <code>RWOP</code> bloquerait le réveil de l'agent, et passer en <code>RWX</code> (NFSv4) casserait SQLite WAL (<code>mmap</code>). Le Control Plane synchronise donc un miroir de lecture lors des changements d'état.
+            Cette console regroupe les contrôles métier de la <strong>Plateforme Agentique</strong> (création d'agents, envoi de prompts/événements, validation HITL, exploration des fichiers et sessions SQLite) et des boutons de <strong>Pilotage de l'Infrastructure du Lab</strong> (simulation de panne d'un nœud K3s, migration d'un Pod entre VMs, pause de l'hyperviseur KVM).<br>
+            <span style="font-size:11.5px; color:#475569;">Fichier de référence : <code>k8s-opencode/agent-platform-lab/docs/USER_GUIDE.md</code></span>
           </div>
 
+          <h4 style="margin:12px 0 6px;">1. Barre supérieure & Colonne de gauche</h4>
           <table class="doc-table">
             <thead>
               <tr>
-                <th>Transition / État du Pod</th>
-                <th>État K8s & Longhorn</th>
-                <th>Action déclenchée automatiquement</th>
-                <th>Accès aux données dans l'App Chapeau</th>
+                <th>Bouton / Indicateur</th>
+                <th>Type</th>
+                <th>Action réalisée</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td><strong>Déploiement initial → 💤 HIBERNATED</strong></td>
-                <td><code>0/1</code> · PVC <code>detached</code></td>
-                <td>Création du PVC, ConfigMap et Deployment à <code>replicas: 0</code>.</td>
-                <td>0 Mio RAM consommés. Prêt à être réveillé.</td>
+                <td><strong><code>+ Patron YAML</code></strong></td>
+                <td>Plateforme Agentique</td>
+                <td>Ouvre l'éditeur déclaratif (<code>kind: DurableAgent</code>) pour choisir un patron d'agent ou en créer un nouveau et le déployer dans Kubernetes.</td>
               </tr>
               <tr>
-                <td><strong>💤 HIBERNATED → ⚡ WAKING → 🟢 WORKING</strong></td>
-                <td><code>1/1 Running</code> · PVC <code>attached</code></td>
-                <td><code>scale --replicas=1</code>, montage exclusif RWOP sur <code>/data</code>, lancement <code>opencode run --format json</code>.</td>
-                <td>Streaming temps réel NDJSON des réflexions et appels d'outils.</td>
+                <td><strong>Filtres (<code>Tous</code>, <code>Work</code>, <code>HITL</code>, <code>Sleep</code>)</strong></td>
+                <td>Plateforme Agentique</td>
+                <td>Filtre la liste des agents selon leur état courant.</td>
               </tr>
               <tr>
-                <td><strong>🟢 WORKING → 🔵 IDLE (Tâche finie, Pod non hiberné)</strong></td>
-                <td><code>1/1 Running</code> · PVC <code>attached</code></td>
-                <td><strong>📸 SNAPSHOT #1 IMMÉDIAT</strong> (arborescence récursive <code>/data/workspace</code> + tables SQLite) + armement du timer Auto-Hibernate.</td>
-                <td><strong>Immédiatement disponible</strong> (lecture directe Pod + miroir déjà synchronisé, même sans hibernation).</td>
+                <td><strong><code>🖥️ agentlab-server</code> / <code>agentlab-worker</code></strong></td>
+                <td>Infra Lab</td>
+                <td>Affiche l'état KVM/libvirt (<code>running</code> / <code>shut off</code>) des 2 VMs K3s et la RAM allouée sur l'hôte.</td>
               </tr>
               <tr>
-                <td><strong>🟢 WORKING → 🟡 WAITING HITL</strong></td>
-                <td><code>0/1</code> · PVC <code>detached</code></td>
-                <td>Fin de <code>--agent plan</code> → <strong>📸 SNAPSHOT #1</strong> → <code>scale --replicas=0</code>.</td>
-                <td>Plan et session SQLite consultables pendant que le Pod est à 0% CPU.</td>
+                <td><strong><code>⏹️ Stop Nœud Worker (-4 Go)</code> / <code>▶️ Start</code></strong></td>
+                <td>Infra Lab (Chaos)</td>
+                <td>Éteint ou rallume la VM <code>agentlab-worker</code> pour tester la résilience à la perte d'un nœud K3s ou libérer 4 Go de RAM sur l'hôte.</td>
               </tr>
               <tr>
-                <td><strong>🔵 IDLE → 💤 HIBERNATED (Expiration Cooldown)</strong></td>
-                <td><code>0/1</code> · PVC <code>detached</code></td>
-                <td><strong>📸 SNAPSHOT FINAL PRÉ-ARRÊT (preStop)</strong> juste avant <code>scale --replicas=0</code>.</td>
-                <td>Fichiers, aperçu HTML, export <code>.zip</code> et transcripts SQLite servis 100 % hors-ligne.</td>
+                <td><strong><code>🌙 Pause Lab</code> / <code>☀️ Réveiller VMs</code></strong></td>
+                <td>Infra Lab</td>
+                <td>Arrête ou redémarre proprement les 2 VMs du lab (<code>./pause.sh</code> / <code>./resume.sh</code>) pour tomber à 0 % CPU/RAM sur le PC hôte.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4 style="margin:12px 0 6px;">2. En-tête de l'agent, Flux central & Colonne de droite</h4>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th>Bouton / Contrôle</th>
+                <th>Type</th>
+                <th>Action réalisée</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong><code>🚀 Réveiller (0→1) &amp; Envoyer</code></strong></td>
+                <td>Plateforme Agentique</td>
+                <td>Envoie le prompt à l'agent (<code>POST /api/agents/{name}/message</code>). S'il est à <code>0/1</code>, réveille automatiquement son Pod, attache le PVC Longhorn et stream la sortie NDJSON.</td>
+              </tr>
+              <tr>
+                <td><strong><code>⚡ Mode Direct</code> / <code>🛡️ Mode HITL</code></strong></td>
+                <td>Plateforme Agentique</td>
+                <td>Choisit entre une exécution immédiate (<code>--agent build</code>) ou une exécution en 2 temps avec validation humaine (<code>--agent plan</code> → hibernation <code>0/1</code> → validation → <code>--agent build</code>).</td>
+              </tr>
+              <tr>
+                <td><strong><code>🌐 Aperçu Site Web ↗</code> / <code>⬇️ .zip</code></strong></td>
+                <td>Plateforme Agentique</td>
+                <td>Ouvre dans le navigateur le site web généré dans <code>/data/workspace</code> ou télécharge tous les fichiers et sessions SQLite en <code>.zip</code> (fonctionne même Pod éteint grâce au Snapshot).</td>
+              </tr>
+              <tr>
+                <td><strong><code>📄 Patron YAML / KEDA</code></strong></td>
+                <td>Plateforme Agentique</td>
+                <td>Affiche le YAML <code>DurableAgent</code> de l'agent et les manifestes Kubernetes (<code>Deployment</code>, <code>PVC</code>, <code>ConfigMap</code>, <code>ScaledObject</code> KEDA) générés.</td>
+              </tr>
+              <tr>
+                <td><strong><code>🔌 API &amp; Événements</code></strong></td>
+                <td>Plateforme Agentique</td>
+                <td>Ouvre l'onglet <em>Documentation Technique &amp; API</em> avec le simulateur d'événements et les commandes <code>curl</code>.</td>
+              </tr>
+              <tr>
+                <td><strong><code>⚡ Wake (0 → 1)</code> / <code>💤 Hibernate (1 → 0)</code></strong></td>
+                <td>Infra / Forçage</td>
+                <td>Force manuellement le démarrage ou la mise en hibernation (avec snapshot préalable) du Pod de l'agent sans lui envoyer de prompt.</td>
+              </tr>
+              <tr>
+                <td><strong><code>🔀 Migrate Node (A → B)</code></strong></td>
+                <td>Infra Lab (Chaos)</td>
+                <td>Force la migration à chaud du Pod vers l'autre VM K3s pour démontrer que le volume Longhorn et la session SQLite suivent le Pod d'un nœud à l'autre.</td>
+              </tr>
+              <tr>
+                <td><strong><code>📜 Logs K8s / PVC</code></strong></td>
+                <td>Infra / Diagnostic</td>
+                <td>Affiche les événements Kubernetes bruts, l'état du PVC Longhorn et du Pod.</td>
+              </tr>
+              <tr>
+                <td><strong><code>🗑️</code> (en-tête agent ou workspace)</strong></td>
+                <td>Plateforme Agentique</td>
+                <td>En haut à droite : supprime l'agent et son PVC (<code>DELETE /api/agents/{name}</code>). Dans la colonne de droite : vide uniquement <code>/data/workspace</code> et réinitialise SQLite.</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <!-- TAB 3: ADR-001 ISOLATION 1 AGENT = 1 POD -->
-        <div v-if="docTab === 'adr1'" style="font-size:13px; line-height:1.55;">
-          <h4 style="margin-top:0;">ADR-001 : Pourquoi 1 Instance d'Agent = 1 Pod dédié + 1 PVC Longhorn <code>ReadWriteOncePod</code> ?</h4>
-          <p>
-            Le manifeste YAML (<code>kind: DurableAgent</code>) représente un <strong>template d'agent</strong>. Chaque instance déployée reçoit son propre Pod et son propre PVC en mode <code>ReadWriteOncePod</code> (stable depuis Kubernetes v1.29) :
-          </p>
-          <ul>
-            <li><strong>Intégrité SQLite WAL (<code>/data/opencode.db</code>) :</strong> SQLite WAL utilise un fichier de mémoire partagée (<code>opencode.db-shm</code> via <code>mmap</code>) qui exige un système de fichiers bloc local (<code>ext4</code>) avec un seul écrivain. <code>ReadWriteOncePod</code> garantit au niveau CSI qu'aucun second Pod ne peut monter le volume simultanément.</li>
-            <li><strong>Isolation du Workspace (<code>/data/workspace</code>) :</strong> Évite toute collision de fichiers (<code>index.html</code>, <code>package.json</code>, index Git) entre deux agents travaillant en parallèle.</li>
-            <li><strong>Cycle de vie <code>0 ↔ 1</code> indépendant :</strong> Chaque agent hiberne (0 Mio RAM) ou migre d'un nœud K3s à l'autre sans impacter les autres agents.</li>
-          </ul>
-          <h4>Comment instancier N fois un même template d'agent ?</h4>
-          <p>
-            <strong>1. Instances nommées par projet :</strong> Déployer plusieurs manifestes <code>DurableAgent</code> avec un <code>metadata.name</code> distinct (ex: <code>opencode-dev-website-blog</code>, <code>opencode-dev-website-doc</code>).<br>
-            <strong>2. Pool indexé de workers identiques :</strong> Utiliser un <code>StatefulSet</code> Kubernetes muni d'un <code>volumeClaimTemplates</code> en <code>ReadWriteOncePod</code>, qui crée automatiquement les Pods isolés <code>agent-0</code>, <code>agent-1</code> et leurs PVCs dédiés <code>storage-agent-0</code>, <code>storage-agent-1</code>.
-          </p>
-        </div>
-
-        <!-- TAB 4: ADR-003 EVENT API & CRONJOB -->
-        <div v-if="docTab === 'adr3'" style="font-size:13px; line-height:1.55;">
-          <h4 style="margin-top:0;">ADR-003 : Réveil sur Événement Externe (Webhook) ou Scheduler (<code>CronJob</code> K8s)</h4>
+        <!-- TAB 3: DOCUMENTATION TECHNIQUE & API -->
+        <div v-if="docTab === 'tech'" style="font-size:13px; line-height:1.55;">
           <div class="doc-callout">
-            <strong>Découplage Définition / Invocation :</strong> Un agent créé via son YAML démarre à l'état <code>HIBERNATED (0/1)</code>. Il ne contient ni démon cron interne ni serveur webhook (puisque son Pod est éteint). Tout réveil (<code>0 → 1</code> + exécution du prompt) passe par l'API événementielle du Control Plane : <code>POST /api/agents/{{ currentAgent ? currentAgent.name : 'opencode-sre' }}/message</code>.
+            <strong>Fichier de référence :</strong> <code>k8s-opencode/agent-platform-lab/docs/TECHNICAL_STACK.md</code>
           </div>
 
-          <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:12px; margin-bottom:12px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-              <strong>🚀 Tester un réveil événementiel en direct sur <code>{{ currentAgent ? currentAgent.name : 'opencode-sre' }}</code></strong>
+          <h4 style="margin:10px 0 6px;">1. Stack technique utilisée dans le lab (Hôte vs Cluster K3s)</h4>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th>Étage</th>
+                <th>Composant</th>
+                <th>Rôle technique</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Hôte Linux</strong></td>
+                <td><strong>KVM / libvirt</strong> (<code>qemu:///system</code>)</td>
+                <td>Exécute 2 VMs Ubuntu 24.04 LTS (<code>agentlab-server</code> et <code>agentlab-worker</code>, 4 Go RAM chacune) sur un réseau NAT isolé (<code>192.168.124.0/24</code>).</td>
+              </tr>
+              <tr>
+                <td><strong>Hôte Linux</strong></td>
+                <td><strong>Control Plane (« App Chapeau »)</strong></td>
+                <td>Serveur <strong>Python 3 / FastAPI</strong> + <strong>Vue 3 (CDN)</strong> tournant sur l'hôte. Pilote K3s, les VMs libvirt, les snapshots locaux (<code>.private/agent_cache/</code>) et ouvre un proxy TCP (<code>192.168.124.1:11434</code>) vers le serveur <strong>Ollama</strong> de l'hôte.</td>
+              </tr>
+              <tr>
+                <td><strong>Cluster (2 VMs)</strong></td>
+                <td><strong>K3s</strong> (<code>v1.31.6+k3s1</code>)</td>
+                <td>Control Plane K8s sur <code>agentlab-server</code> (<code>.101</code>) et nœud worker sur <code>agentlab-worker</code> (<code>.102</code>).</td>
+              </tr>
+              <tr>
+                <td><strong>Cluster (2 VMs)</strong></td>
+                <td><strong>Longhorn CSI</strong> (<code>v1.8.0</code>)</td>
+                <td>Stockage bloc distribué avec <code>StorageClass</code> <code>agent-longhorn</code> (<code>numberOfReplicas: 2</code>, <code>ext4</code>) répliquant chaque volume en temps réel entre les 2 VMs via <code>open-iscsi</code>.</td>
+              </tr>
+              <tr>
+                <td><strong>Cluster (2 VMs)</strong></td>
+                <td><strong>Pod Agent OpenCode v2</strong></td>
+                <td>1 <code>Deployment</code> (<code>strategy: Recreate</code>) + 1 <code>ConfigMap</code> + 1 <code>PVC</code> <code>ReadWriteOncePod</code> monté sur <code>/data</code> (<code>/data/workspace</code> + SQLite WAL <code>/data/opencode.db</code>).</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4 style="margin:14px 0 6px;">2. Interactions entre le Control Plane, Kubernetes et l'hyperviseur</h4>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Cible</th>
+                <th>Commande exécutée par <code>app_chapeau/main.py</code></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Rafraîchir l'état (<code>GET /api/state</code>)</strong></td>
+                <td>API K8s + Longhorn + <code>virsh</code></td>
+                <td><code>kubectl -n agent-lab get deploy,pvc,pods -o json</code> + <code>kubectl -n longhorn-system get volumes.longhorn.io -o json</code> + <code>virsh domstate</code></td>
+              </tr>
+              <tr>
+                <td><strong>Créer un agent (<code>POST /api/agents/apply</code>)</strong></td>
+                <td>API K8s</td>
+                <td>Génère le <code>ConfigMap</code>, le <code>PVC</code> et le <code>Deployment</code> (<code>replicas: 0</code>) puis exécute <code>kubectl apply -f -</code>.</td>
+              </tr>
+              <tr>
+                <td><strong>Réveiller / Hiberner (<code>0 ↔ 1</code>)</strong></td>
+                <td>API K8s</td>
+                <td><code>kubectl -n agent-lab scale deploy/&lt;agent&gt; --replicas=1</code> (ou <code>0</code>) + <code>kubectl rollout status</code>.</td>
+              </tr>
+              <tr>
+                <td><strong>Envoyer un événement / prompt</strong></td>
+                <td>Pod K8s (flux <code>exec</code>)</td>
+                <td><code>kubectl -n agent-lab exec &lt;pod&gt; -- opencode run --standalone --auto --format json ...</code> (streaming NDJSON temps réel).</td>
+              </tr>
+              <tr>
+                <td><strong>Prendre un Snapshot</strong></td>
+                <td>Pod K8s (<code>exec</code>)</td>
+                <td><code>kubectl -n agent-lab exec &lt;pod&gt; -- sh -c ...</code> (synchronise <code>/data/opencode.db</code> et <code>/data/workspace</code> vers <code>.private/agent_cache/&lt;agent&gt;/</code>).</td>
+              </tr>
+              <tr>
+                <td><strong><code>🔀 Migrate Node (A → B)</code></strong></td>
+                <td>API K8s</td>
+                <td><code>kubectl cordon &lt;old&gt;</code> → <code>kubectl delete pod &lt;pod&gt;</code> → <code>kubectl rollout status</code> → <code>kubectl uncordon &lt;old&gt;</code>.</td>
+              </tr>
+              <tr>
+                <td><strong><code>⏹️ Stop Worker</code> / <code>🌙 Pause Lab</code></strong></td>
+                <td>Hyperviseur KVM hôte</td>
+                <td><code>./pause.sh --worker-only</code> / <code>./pause.sh</code> / <code>./resume.sh</code> (appels <code>virsh shutdown</code> / <code>virsh start</code> sur l'hôte).</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4 style="margin:14px 0 6px;">3. API REST du Control Plane & Simulateur d'événement</h4>
+          <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:10px; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <strong>🚀 Simuler un événement API sur <code>{{ currentAgent ? currentAgent.name : 'opencode-sre' }}</code></strong>
               <button class="btn-green btn-sm" @click="simulateWebhookTrigger" :disabled="!currentAgent || currentAgent.status === 'working'">
-                ⚡ Simuler un événement externe (Wake 0→1 + Prompt)
+                ⚡ Envoyer POST /api/agents/{{ currentAgent ? currentAgent.name : 'opencode-sre' }}/message
               </button>
             </div>
-            <input type="text" v-model="webhookTestPrompt" style="margin-bottom:4px;">
+            <input type="text" v-model="webhookTestPrompt">
           </div>
 
-          <h4>1. Instancier un agent depuis son patron YAML (<code>POST /api/agents/apply</code>)</h4>
-          <pre class="code-block">curl -X POST {{ baseUrl }}/api/agents/apply \
-  -H "Content-Type: application/json" \
-  -d "{\"yaml_content\": $(jq -Rs . &lt; agents/{{ currentAgent ? currentAgent.name : 'opencode-dev-website' }}.yaml)}"</pre>
+          <pre class="code-block"># 1. Instancier un agent depuis son patron YAML :
+curl -X POST {{ baseUrl }}/api/agents/apply -H "Content-Type: application/json" \
+  -d "{\"yaml_content\": $(jq -Rs . &lt; agents/{{ currentAgent ? currentAgent.name : 'opencode-dev-website' }}.yaml)}"
 
-          <h4 style="margin-top:12px;">2. Réveiller l'agent et envoyer un événement / prompt (<code>POST /api/agents/{name}/message</code>)</h4>
-          <pre class="code-block">curl -X POST {{ baseUrl }}/api/agents/{{ currentAgent ? currentAgent.name : 'opencode-sre' }}/message \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "{{ webhookTestPrompt }}",
-    "mode": "auto",
-    "continue_session": true
-  }'</pre>
+# 2. Réveiller l'agent (0→1) et lui envoyer un événement / prompt :
+curl -X POST {{ baseUrl }}/api/agents/{{ currentAgent ? currentAgent.name : 'opencode-sre' }}/message -H "Content-Type: application/json" \
+  -d '{"prompt": "{{ webhookTestPrompt }}", "mode": "auto", "continue_session": true}'
 
-          <h4 style="margin-top:12px;">3. Arrêter une tâche en cours ou supprimer l'agent (<code>POST .../stop</code> &amp; <code>DELETE</code>)</h4>
-          <pre class="code-block"># Interrompre l'exécution OpenCode en cours :
-curl -X POST {{ baseUrl }}/api/agents/{{ currentAgent ? currentAgent.name : 'opencode-dev-website' }}/stop
+# 3. Interrompre une tâche en cours :
+curl -X POST {{ baseUrl }}/api/agents/{{ currentAgent ? currentAgent.name : 'opencode-sre' }}/stop
 
-# Supprimer l'agent, son Deployment, son PVC Longhorn et son Snapshot :
+# 4. Supprimer définitivement l'agent et son PVC Longhorn :
 curl -X DELETE {{ baseUrl }}/api/agents/{{ currentAgent ? currentAgent.name : 'opencode-dev-website' }}</pre>
-
-          <h4 style="margin-top:12px;">4. Déclenchement périodique par un <code>CronJob</code> Kubernetes</h4>
-          <pre class="code-block">apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: trigger-{{ currentAgent ? currentAgent.name : 'opencode-sre' }}-morning
-  namespace: agent-lab
-spec:
-  schedule: "0 8 * * 1-5"
-  concurrencyPolicy: Forbid
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          serviceAccountName: agent-trigger-caller # En prod : jeton projeté vérifié par TokenReview API
-          restartPolicy: OnFailure
-          containers:
-            - name: webhook-caller
-              image: curlimages/curl:8.10.1
-              command:
-                - sh
-                - -c
-                - |
-                  curl -sf -X POST http://192.168.124.1:8000/api/agents/{{ currentAgent ? currentAgent.name : 'opencode-sre' }}/message \
-                    -H "Content-Type: application/json" \
-                    -d '{"prompt":"Exécute la revue quotidienne et mets à jour report.md","mode":"auto"}'</pre>
         </div>
 
-        <!-- TAB 5: FULL ARTICLE MARKDOWN -->
+        <!-- TAB 4: ARTICLE COMPLET -->
         <div v-if="docTab === 'article'">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <span style="font-size:12px; color:#475569;">Fichier source : <code>k8s-opencode/ARTICLE_PLATEFORME_AGENTIQUE_K8S.md</code></span>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+            <div style="font-size:12.5px; color:#334155;">
+              📄 Fichier : <code>k8s-opencode/article-k8s-eaia-plateform.md</code> ·
+              <a href="https://github.com/MathFrenchToast/durable-agents-k8s/blob/main/k8s-opencode/article-k8s-eaia-plateform.md" target="_blank" style="color:#2563eb; font-weight:700;">
+                🔗 Ouvrir l'article complet sur GitHub ↗
+              </a>
+            </div>
             <button class="btn-outline btn-sm" @click="copyToClipboard(docContent.article_markdown, 'article_md')">
               {{ copiedKey === 'article_md' ? '✓ Article copié !' : '📋 Copier le Markdown de l’article' }}
             </button>

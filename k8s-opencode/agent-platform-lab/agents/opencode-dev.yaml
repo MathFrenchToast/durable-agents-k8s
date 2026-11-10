@@ -14,7 +14,7 @@ spec:
   scaling:
     autoHibernate: true
     idleTimeoutSeconds: 120
-    initialReplicas: 1
+    initialReplicas: 0
     keda:
       enabled: true
       minReplicaCount: 0

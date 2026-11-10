@@ -11,8 +11,8 @@ Mais comme toujours, il existe une alternative *Make or Buy*, et bien entendu un
 
 Je vous propose ici de **construire un socle modulaire sur une infrastructure Kubernetes** en assemblant un *harnais* open-source et des briques cloud-natives standards afin de maîtriser l'hébergement des données, le cloisonnement, la boucle agentique — y compris « l'humain dans la boucle » (HITL) — et les coûts d'exécution.
 
-Le cœur de ce socle tient en **moins de 1 000 lignes de code** (~190 lignes de manifestes Kubernetes de base, ~800 lignes de Python pour le *Control Plane*, et ~35 lignes de YAML pour déclarer un nouvel agent).
-Bien entendu, ce noyau ne couvre que le moteur d'exécution et le cycle de vie. Pour constituer une plateforme d'entreprise complète, il faudra y ajouter plusieurs briques essentielles volontairement laissées hors du périmètre de ce lab :
+Le cœur de ce socle tient en moins de 1 000 lignes de code (~190 lignes de manifestes Kubernetes de base, ~800 lignes de Python pour le *Control Plane*, et ~35 lignes de YAML pour déclarer un nouvel agent).
+Mais ce noyau ne couvre que le moteur d'exécution et le cycle de vie. Pour constituer une plateforme d'entreprise complète, il faudra y ajouter plusieurs briques essentielles volontairement laissées hors du périmètre de ce lab :
 - **Identité et délégation de droits** : restreindre les droits d'un agent en faisant du « au-nom-de » (*On-Behalf-Of*) via son identité applicative et les droits de l'utilisateur qui l'invoque.
 - **Gouvernance des plugins (MCP, Skills)** : gérer le registre et la distribution des plugins (serveurs MCP, *skills*), et filtrer les appels d'outils via une passerelle (OPA/Cedar).
 - **Prompt management** : versionner, tester et gouverner le cycle de vie des prompts système et métier en dehors du code d'infrastructure.
@@ -42,12 +42,12 @@ Bien entendu, ce noyau ne couvre que le moteur d'exécution et le cycle de vie. 
 
 Les choix structurants ici sont **Kubernetes** et **OpenCode v2**.
 
-OpenCode v2 vient de sortir il y a quelques heures lorsque je lance ce travail. Depuis sa v1, c'est un harnais open-source avec une bonne adoption, de nombreuses fonctionnalités et des fondamentaux qui permettent de l'étendre.
+OpenCode v2 vient de sortir il y a quelques heures lorsque je lance ce travail. Depuis sa v1, c'est un harnais open-source avec une bonne adoption, de nombreuses fonctionnalités et des fondamentaux qui permettent de l'étendre — et qui ressort comme un bon compromis fonctionnalités/efficacité d'après le [Harness Leaderboard](https://huggingface.co/spaces/joelniklaus/harness-leaderboard).
 Il a la particularité d'avoir une empreinte en ressources faible et une architecture simple : il tourne aisément dans un conteneur, nécessite un espace disque pour son *workspace* (`/data/workspace`) et une base SQLite pour stocker ses sessions (`/data/opencode.db`).
 
 Kubernetes va permettre de mettre en œuvre :
-- la maîtrise CPU/RAM via le pilotage de la taille des déploiements (`Deployment` / `ReplicaSet` entre `0` et `1` réplique),
-- l'attachement de volumes persistants (`PVC`) pour le *workspace* et la base SQLite,
+- la maîtrise CPU/RAM via le pilotage de la taille des déploiements (`Deployment` avec un pilotage du `ReplicaSet`),
+- l'attachement de volumes persistants (`PVC`) pour le *workspace* et la base SQLite associé à un stockage résilient multi-noeud via longhorn,
 - la définition déclarative de « patrons » d'agents en YAML.
 
 > **Note :** quelque temps après avoir lancé ce lab, je suis tombé sur deux projets similaires qui valident cette approche : **[KubeOpenCode](https://github.com/kubeopencode/kubeopencode)** (initialement construit sur OpenCode v1) et **[Ambient Code Platform](https://github.com/ambient-code/platform)** (qui applique ce même modèle sur Kubernetes avec le harnais *Claude Code*).
@@ -248,6 +248,7 @@ cd durable-agents-k8s/k8s-opencode/agent-platform-lab
 ### Références
 
 - **OpenCode v2 Documentation & CLI** : [https://opencode.ai/v2/docs/](https://opencode.ai/v2/docs/)
+- **Agent Harness Leaderboard (Hugging Face)** : [https://huggingface.co/spaces/joelniklaus/harness-leaderboard](https://huggingface.co/spaces/joelniklaus/harness-leaderboard)
 - **Kubernetes Persistent Volume Access Modes (`ReadWriteOncePod`)** : [https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes)
 - **Kubernetes StatefulSets & `volumeClaimTemplates`** : [https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/)
 - **Kubernetes Container Lifecycle Hooks (`preStop`)** : [https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/)

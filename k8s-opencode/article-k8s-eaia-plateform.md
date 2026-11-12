@@ -1,15 +1,19 @@
 # Une plateforme d'agents IA durables sur Kubernetes en moins de 1 000 lignes de code
 
-Après les chatbots, les harnais (*agent harnesses*) ont, en 2026, réellement fait progresser l'usage en matérialisant l'IA agentique.
-Dorénavant, chaque utilisateur de l'IA dispose sur son poste d'un outil ou d'une application pour lancer plusieurs tâches en parallèle.
-Cependant pour les agents, comme pour d'autres sujets auparavant dans le monde de l'entreprise, il faut pouvoir faire passer cet usage à l'échelle.
-C'est ce que l'on nomme les plateformes d'« *Enterprise AI Agent* ».
+> **TL;DR**
+> Exécuter un agent IA sur son poste de travail est aujourd'hui trivial, mais héberger plusieurs agents toujours disponibles pour une équipe pose vite des problèmes d'isolation, de persistance et de coûts. Plutôt que de recoder un moteur d'agent ou de payer des conteneurs inactifs en permanence, cet article montre comment assembler un harnais open-source existant et les briques standards de Kubernetes pour obtenir un socle d'hébergement *always-on*, extensible et scalable. Chaque agent est déclaré en YAML, dispose de son propre disque persistant, se réveille à la demande sur événement et retourne automatiquement en hibernation à zéro CPU et RAM dès qu'il attend un humain ou termine sa tâche.
+
+Après les chatbots, les harnais ont, en 2026, réellement fait progresser l'usage en matérialisant l'IA agentique.
+Dorénavant, chaque utilisateur de l'IA dispose sur son poste d'un outil ou d'une application pour lancer plusieurs tâches en parallèle et même parfois pour les déclencher régulièrement.
+Cependant pour les agents, comme pour d'autres sujets avant celui-ci, dans le monde de l'entreprise, il faut pouvoir faire passer cet usage à l'échelle.
+C'est tout l'objet des plateformes d'« *Enterprise AI Agent* ».
 Leur cahier des charges est de permettre de disposer d'un environnement agentique toujours disponible, auditable, respectant les politiques de l'entreprise et pour un coût maîtrisé.
 
-L'offre des plateformes agentiques est en train de se structurer, avec notamment les propositions des grands fournisseurs Cloud. On peut citer *AWS Bedrock Agents* et *Google Cloud Vertex AI Agent Engine* (*Google Agent Platform*).
-Mais comme toujours, il existe une alternative *Make or Buy*, et bien entendu un *Make* qui se doit de ne pas réinventer la roue.
+L'offre des plateformes agentiques est en train de se structurer, avec notamment les propositions des grands fournisseurs Cloud. On peut citer *AWS Bedrock Agents* et *Google Cloud Vertex AI Agent Engine* (*Google Agent Platform*).  
+Il n'y a pas encore d'alternative viable Open source couvrant toutes les couches et briques d'une telle solution.  
+Et comme toujours, il existe une alternative *Make or Buy*, et bien entendu un *Make* qui se doit de ne pas réinventer la roue, en utilisant des briques plus bas niveau (open source ou pas).
 
-Je vous propose ici de **construire un socle modulaire sur une infrastructure Kubernetes** en assemblant un *harnais* open-source et des briques cloud-natives standards afin de maîtriser l'hébergement des données, le cloisonnement, la boucle agentique — y compris « l'humain dans la boucle » (HITL) — et les coûts d'exécution.
+Je vous propose ici de **construire un socle sur une infrastructure Kubernetes** en assemblant un *harnais* open-source et des briques cloud-natives standards afin de maîtriser l'hébergement des données, le cloisonnement, la boucle agentique - y compris « l'humain dans la boucle » (HITL) - et les coûts d'exécution.
 
 Le cœur de ce socle tient en moins de 1 000 lignes de code (~190 lignes de manifestes Kubernetes de base, ~800 lignes de Python pour le *Control Plane*, et ~35 lignes de YAML pour déclarer un nouvel agent).
 Mais ce noyau ne couvre que le moteur d'exécution et le cycle de vie. Pour constituer une plateforme d'entreprise complète, il faudra y ajouter plusieurs briques essentielles volontairement laissées hors du périmètre de ce lab :
@@ -32,11 +36,11 @@ Mais ce noyau ne couvre que le moteur d'exécution et le cycle de vie. Pour cons
 2. **Tenir la charge de plusieurs agents sans faire exploser les coûts d'infrastructure** :
    - *Objectif* : afin de supporter la charge induite par la mutualisation d'une telle plateforme sans faire exploser les coûts, nous cherchons à avoir *by-design* un mécanisme de mise en hibernation qui garantit zéro consommation CPU/RAM au repos. Cela implique aussi de pouvoir passiver la session de travail et le contenu généré, puis de restaurer l'état complet lorsqu'un événement le nécessite (demande humaine ou alerte externe, par exemple).
 
-3. **Disposer d'une approche *as-code*** :
-   - *Objectif* : pouvoir provisionner à la fois l'infrastructure et les agents sur la base d'éléments descriptifs historisables dans Git, et disposer d'une API pour piloter tout le cycle de vie des agents.
+3. **Disposer d'une approche "as-code" et un "boiler-plate"** :
+   - *Objectif* : pouvoir provisionner à la fois l'infrastructure et les agents sur la base d'éléments descriptifs historisables dans Git (fichiers yaml, ressources), et disposer d'une API pour piloter tout le cycle de vie des agents.
 
 4. **Proposer un *boilerplate* capable de supporter la haute disponibilité** :
-   - *Objectif* : ne pas tout coder, mais poser des bases s'appuyant sur des briques éprouvées pour assurer une vraie résilience opérationnelle et supporter la haute disponibilité.
+   - *Objectif* : ne pas devoir tout re-coder, mais poser des bases s'appuyant sur des briques éprouvées pour assurer une vraie résilience opérationnelle et supporter la haute disponibilité.
 
 ### Choix techniques
 
@@ -113,6 +117,10 @@ Pendant la phase `WORKING`, la console affiche en direct le flux **NDJSON** d'Op
 - consulter l'intégralité de l'historique de la session SQLite (prompts, réflexions du modèle, appels d'outils),
 - prévisualiser, copier ou télécharger en `.zip` les fichiers générés par l'agent dans `/data/workspace`.
 
+> **Remarques sur le stockage en cible :**
+> - Dans un cluster managé (EKS, GKE, OVH MKS), Longhorn n'est pas nécessaire : il est remplacé par le CSI bloc standard du cloud provider.
+> - Nous aurions aussi pu implémenter le snapshot sur S3, par exemple en utilisant **[Litestream](https://litestream.io/guides/kubernetes/)** pour SQLite combiné à une copie du *workspace*.
+
 ---
 
 ## 3. Exemples
@@ -147,7 +155,12 @@ spec:
     Écris des fichiers complets dans /data/workspace avec l'outil write.
 ```
 
-Il est tout à fait possible d'instancier plusieurs fois ce patron (soit sous forme d'instances nommées par projet avec un `metadata.name` dédié, soit sous forme d'un pool indexé via un `StatefulSet` et son `volumeClaimTemplates`).
+> **Note :** Pour ne pas complexifier le lab, ceci n'est pas une vraie *Custom Resource Definition* (CRD). Cette définition est transformée par le Control Plane en :
+> - un `ConfigMap` (`opencode.json` + `AGENTS.md`),
+> - un `PersistentVolumeClaim` (`ReadWriteOncePod`),
+> - un `Deployment` (`replicas: 0`, où le YAML initial est stocké dans l'annotation `agent.platform/spec-yaml`).
+
+Il est possible d'instancier plusieurs fois ce patron sous forme d'instances nommées par projet ou par contexte avec un `metadata.name` dédié (chacune disposant ainsi de son propre endpoint API, de son `PVC` et de son cycle d'hibernation indépendant).
 
 ### 2. Instancier un agent par API (`POST /api/agents/apply`)
 
@@ -250,13 +263,14 @@ cd durable-agents-k8s/k8s-opencode/agent-platform-lab
 - **OpenCode v2 Documentation & CLI** : [https://opencode.ai/v2/docs/](https://opencode.ai/v2/docs/)
 - **Agent Harness Leaderboard (Hugging Face)** : [https://huggingface.co/spaces/joelniklaus/harness-leaderboard](https://huggingface.co/spaces/joelniklaus/harness-leaderboard)
 - **Kubernetes Persistent Volume Access Modes (`ReadWriteOncePod`)** : [https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes)
-- **Kubernetes StatefulSets & `volumeClaimTemplates`** : [https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/)
+- **Kubernetes CustomResourceDefinitions (`CRD`)** : [https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/](https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/)
 - **Kubernetes Container Lifecycle Hooks (`preStop`)** : [https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/)
 - **Kubernetes `TokenReview` API (`authentication.k8s.io/v1`)** : [https://kubernetes.io/docs/reference/kubernetes-api/authentication-resources/token-review-v1/](https://kubernetes.io/docs/reference/kubernetes-api/authentication-resources/token-review-v1/)
 - **Longhorn Volume Engine & Replicas** : [https://longhorn.io/docs/latest/concepts/#2-volume-engine-and-replicas](https://longhorn.io/docs/latest/concepts/#2-volume-engine-and-replicas)
 - **Longhorn RWX Volumes & Share Manager** : [https://longhorn.io/docs/latest/nodes-and-volumes/volumes/rwx-volumes/](https://longhorn.io/docs/latest/nodes-and-volumes/volumes/rwx-volumes/)
 - **KEDA Scaling Deployments (`0 ↔ 1`)** : [https://keda.sh/docs/2.16/concepts/scaling-deployments/](https://keda.sh/docs/2.16/concepts/scaling-deployments/)
 - **SQLite Write-Ahead Logging (WAL)** : [https://sqlite.org/wal.html](https://sqlite.org/wal.html)
+- **Litestream — SQLite Replication on Kubernetes** : [https://litestream.io/guides/kubernetes/](https://litestream.io/guides/kubernetes/)
 - **KubeOpenCode (OpenCode sur Kubernetes)** : [https://github.com/kubeopencode/kubeopencode](https://github.com/kubeopencode/kubeopencode)
 - **Ambient Code Platform (Claude Code sur Kubernetes avec HITL)** : [https://github.com/ambient-code/platform](https://github.com/ambient-code/platform)
 
